@@ -1,4 +1,5 @@
 - name: boo
+  hosts: all
   become: true
   become_method: sudo
   become_user: ubuntu
