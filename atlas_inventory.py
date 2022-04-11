@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import requests
-import sys
 
 from requests.auth import HTTPDigestAuth
 
@@ -24,6 +23,8 @@ class AtlasInventory(object):
     def add_key_groups(self, data):
         for host in data['_meta']['hostvars']:
             for key_group in KEY_GROUPS:
+
+                # This means this is nested key (parent/child)
                 if '_' in key_group:
                     parent_key, child_key = key_group.split('_')
                     label = 'tag_%s_%s' % (
@@ -35,14 +36,15 @@ class AtlasInventory(object):
                 # Cannot have '.' character in the group name
                 label = label.replace('.', '_')
 
-                if data.get(label):
-                    data[label]['hosts'].append(host)
-                else:
+                # Create the new key group otherwise add to the existing one
+                if not data.get(label):
                     # Because the 'all' key needs to have the new key group too
                     data['all']['children'].append(label)
 
                     new_key_group = { label: { 'hosts': [host] } }
                     data.update(new_key_group)
+                else:
+                    data[label]['hosts'].append(host)
 
         return data
 
