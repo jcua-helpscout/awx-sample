@@ -8,21 +8,40 @@ import sys
 
 from requests.auth import HTTPDigestAuth
 
+from rich import print as rprint
+
+KEY_GROUPS = ['mongoDBVersion', 'providerSettings_diskIOPS']
 
 class AtlasInventory(object):
 
     def __init__(self):
-        self.inventory = {}
         self.read_cli_args()
+        self.inventory = self.atlas_inventory()
+        if self.args.graph:
+            self.inventory = self.atlas_graph()
 
-        if self.args.list:
-            self.inventory = self.atlas_inventory()
-        elif self.args.host:
-            self.inventory = self.atlas_inventory()
-        else:
-            self.inventory = self.atlas_inventory()
+        # print(json.dumps(self.inventory))
 
-        print(json.dumps(self.inventory))
+
+    def add_key_groups(self, data):
+        for host in data['_meta']['hostvars']:
+            for key_group in KEY_GROUPS:
+                if '_' in key_group:
+                    parent_key, child_key = key_group.split('_')
+                    label = 'tag_%s_%s' % (
+                        key_group, data['_meta']['hostvars'][host][parent_key][child_key]
+                    )
+                else:
+                    label = 'tag_%s_%s' % (key_group, data['_meta']['hostvars'][host][key_group])
+
+                if data.get(label):
+                    data[label].append(host)
+                else:
+                    new = { label: [host] }
+                    data.update(new)
+
+        rprint(data)
+        return data
 
 
     def atlas_inventory(self):
@@ -34,25 +53,33 @@ class AtlasInventory(object):
         url = 'https://cloud.mongodb.com/api/atlas/v1.0'
         cluster = '/groups/%s/clusters' % (os.getenv('GROUP_ID'))
         result = requests.get('%s%s' % (url, cluster), auth=auth)
-
-        raw_data = { i['name']:i for i in result.json()['results'] }
-
         data = {
             'group': {
                 'hosts': [ i['name'] for i in result.json()['results'] ],
             },
             '_meta': {
                 'hostvars': { i['name']:i for i in result.json()['results'] }
-            }
+            },
+            "all": {
+                "children": [
+                    "group",
+                    "ungrouped",
+                ]
+            },
         }
 
+        data = self.add_key_groups(data)
         return data
+
+
+    def atlas_graph(self):
+        return self.inventory['group']
 
 
     def read_cli_args(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--list', action = 'store_true')
-        parser.add_argument('--host', action = 'store')
+        parser.add_argument('--graph', action = 'store_true')
         self.args = parser.parse_args()
 
 
