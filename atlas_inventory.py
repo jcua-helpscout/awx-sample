@@ -8,19 +8,17 @@ import sys
 
 from requests.auth import HTTPDigestAuth
 
-from rich import print as rprint
+KEY_GROUPS = ['diskSizeGB', 'groupId', 'mongoDBVersion', 'providerSettings_diskIOPS']
 
-KEY_GROUPS = ['mongoDBVersion', 'providerSettings_diskIOPS']
 
 class AtlasInventory(object):
-
     def __init__(self):
         self.read_cli_args()
         self.inventory = self.atlas_inventory()
         if self.args.graph:
             self.inventory = self.atlas_graph()
 
-        # print(json.dumps(self.inventory))
+        print(json.dumps(self.inventory))
 
 
     def add_key_groups(self, data):
@@ -34,13 +32,18 @@ class AtlasInventory(object):
                 else:
                     label = 'tag_%s_%s' % (key_group, data['_meta']['hostvars'][host][key_group])
 
-                if data.get(label):
-                    data[label].append(host)
-                else:
-                    new = { label: [host] }
-                    data.update(new)
+                # Cannot have '.' character in the group name
+                label = label.replace('.', '_')
 
-        rprint(data)
+                if data.get(label):
+                    data[label]['hosts'].append(host)
+                else:
+                    # Because the 'all' key needs to have the new key group too
+                    data['all']['children'].append(label)
+
+                    new_key_group = { label: { 'hosts': [host] } }
+                    data.update(new_key_group)
+
         return data
 
 
