@@ -65,7 +65,6 @@ class AtlasInventory(object):
             },
             "all": {
                 "children": [
-                    "group",
                     "ungrouped",
                 ]
             },
