@@ -7,17 +7,34 @@ import requests
 
 from requests.auth import HTTPDigestAuth
 
-KEY_GROUPS = ['diskSizeGB', 'groupId', 'mongoDBVersion', 'providerSettings_diskIOPS']
+URL = 'https://cloud.mongodb.com/api/atlas/v1.0'
+KEY_GROUPS = ['diskSizeGB', 'mongoDBVersion', 'providerSettings_diskIOPS']
 
 
 class AtlasInventory(object):
     def __init__(self):
+        self.auth = HTTPDigestAuth(
+            os.getenv('MONGODB_ATLAS_PUBLIC_KEY'),
+            os.getenv('MONGODB_ATLAS_PRIVATE_KEY')
+        )
+
         self.read_cli_args()
+
+        self.group_map = self.get_groups()
         self.inventory = self.atlas_inventory()
+
         if self.args.graph:
             self.inventory = self.atlas_graph()
 
         print(json.dumps(self.inventory))
+
+
+    # Create the group map to translate group id to its actual name
+    def get_groups(self):
+        raw = requests.get('%s%s' % (URL, '/groups'), auth=self.auth)
+        raw = raw.json()['results']
+        results = { i['id']:i['name'] for i in raw }
+        return results
 
 
     def add_key_groups(self, data):
@@ -50,20 +67,16 @@ class AtlasInventory(object):
 
 
     def atlas_inventory(self):
-        auth = HTTPDigestAuth(
-            os.getenv('MONGODB_ATLAS_PUBLIC_KEY'),
-            os.getenv('MONGODB_ATLAS_PRIVATE_KEY')
-        )
+        cluster = '/groups/%s/clusters' % os.getenv('GROUP_ID')
+        result = requests.get('%s%s' % (URL, cluster), auth=self.auth)
+        cluster_name = self.group_map[result.json()['results'][0]['groupId']]
 
-        url = 'https://cloud.mongodb.com/api/atlas/v1.0'
-        cluster = '/groups/%s/clusters' % (os.getenv('GROUP_ID'))
-        result = requests.get('%s%s' % (url, cluster), auth=auth)
         data = {
             'group': {
-                'hosts': [ i['name'] for i in result.json()['results'] ],
+                'hosts': [ "%s_%s" % (cluster_name, i['name']) for i in result.json()['results'] ],
             },
             '_meta': {
-                'hostvars': { i['name']:i for i in result.json()['results'] }
+                'hostvars': { "%s_%s" % (cluster_name, i['name']):i for i in result.json()['results'] }
             },
             "all": {
                 "children": [
