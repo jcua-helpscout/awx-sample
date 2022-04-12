@@ -6,18 +6,36 @@ import os
 import requests
 
 from requests.auth import HTTPDigestAuth
+from rich import print as rprint
 
+URL = 'https://cloud.mongodb.com/api/atlas/v1.0'
 KEY_GROUPS = ['diskSizeGB', 'groupId', 'mongoDBVersion', 'providerSettings_diskIOPS']
 
 
 class AtlasInventory(object):
     def __init__(self):
+        self.auth = HTTPDigestAuth(
+            os.getenv('MONGODB_ATLAS_PUBLIC_KEY'),
+            os.getenv('MONGODB_ATLAS_PRIVATE_KEY')
+        )
+
         self.read_cli_args()
+
+        self.group_map = self.get_groups()
         self.inventory = self.atlas_inventory()
+
         if self.args.graph:
             self.inventory = self.atlas_graph()
 
         print(json.dumps(self.inventory))
+
+
+    # Create the group map to translate group id to its actual name
+    def get_groups(self):
+        raw = requests.get('%s%s' % (URL, '/groups'), auth=self.auth)
+        raw = raw.json()['results']
+        results = { i['id']:i['name'] for i in raw }
+        return results
 
 
     def add_key_groups(self, data):
@@ -50,20 +68,34 @@ class AtlasInventory(object):
 
 
     def atlas_inventory(self):
-        auth = HTTPDigestAuth(
-            os.getenv('MONGODB_ATLAS_PUBLIC_KEY'),
-            os.getenv('MONGODB_ATLAS_PRIVATE_KEY')
-        )
+        results = []
+        for group in os.getenv('GROUP_ID').split(','):
+            cluster = '/groups/%s/clusters' % group
+            results.append(requests.get('%s%s' % (URL, cluster), auth=self.auth))
 
-        url = 'https://cloud.mongodb.com/api/atlas/v1.0'
-        cluster = '/groups/%s/clusters' % (os.getenv('GROUP_ID'))
-        result = requests.get('%s%s' % (url, cluster), auth=auth)
+#         final_result = {}
+#         for i, j in enumerate(results[:-1]):
+#             final_result.update(results[i].json() | results[i+1].json())
+#
+#         import pdb; pdb.set_trace()
+#         if len(results) == 1:
+#             final_result = results[0].json()
+
+        results[0].json()['results'].extend(results[1].json()['results'])
+        final_result = { 'results' : results[0].json() }
+
+        final_result = []
+        final_result.append(results[0].json()['results'])
+        final_result.append(results[1].json()['results'])
+
+        import pdb; pdb.set_trace()
+
         data = {
             'group': {
-                'hosts': [ i['name'] for i in result.json()['results'] ],
+                'hosts': [ "%s_%s" % (self.group_map[i['groupId']], i['name']) for i in final_result['results'] ],
             },
             '_meta': {
-                'hostvars': { i['name']:i for i in result.json()['results'] }
+                'hostvars': { "%s_%s" % (i['groupId'], i['name']):i for i in final_result['results'] }
             },
             "all": {
                 "children": [
