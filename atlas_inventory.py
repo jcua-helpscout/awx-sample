@@ -67,20 +67,34 @@ class AtlasInventory(object):
 
 
     def atlas_inventory(self):
-        cluster = '/groups/%s/clusters' % os.getenv('GROUP_ID')
-        result = requests.get('%s%s' % (URL, cluster), auth=self.auth)
-        cluster_name = self.group_map[result.json()['results'][0]['groupId']]
+        raw = []
+        for group in os.getenv('GROUP_ID').split(','):
+            cluster = '/groups/%s/clusters' % group
+            raw.append(requests.get('%s%s' % (URL, cluster), auth=self.auth))
+
+        # The data structure looks like this:
+        #   { 'link': [...],
+        #     'results': [ { <cluster_1> }, { <cluster_2> } ],
+        #     'totalCount: ...
+        #   }
+        #
+        # For each group result, append each element into final_results,
+        # so that it will contain all data. Nothing to worry about data
+        # being removed because each element is still unique.
+        final_result = {'results': [] }
+        for i, j in enumerate(raw):
+            for k in j.json()['results']:
+                final_result['results'].append(k)
 
         data = {
             'group': {
-                'hosts': [ "%s_%s" % (cluster_name, i['name']) for i in result.json()['results'] ],
+                'hosts': [ "%s_%s" % (self.group_map[i['groupId']], i['name']) for i in final_result['results'] ],
             },
             '_meta': {
-                'hostvars': { "%s_%s" % (cluster_name, i['name']):i for i in result.json()['results'] }
+                'hostvars': { "%s_%s" % (self.group_map[i['groupId']], i['name']):i for i in final_result['results'] }
             },
             "all": {
                 "children": [
-                    "ungrouped",
                 ]
             },
         }
