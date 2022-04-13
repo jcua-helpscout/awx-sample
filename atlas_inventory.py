@@ -6,10 +6,9 @@ import os
 import requests
 
 from requests.auth import HTTPDigestAuth
-from rich import print as rprint
 
 URL = 'https://cloud.mongodb.com/api/atlas/v1.0'
-KEY_GROUPS = ['diskSizeGB', 'groupId', 'mongoDBVersion', 'providerSettings_diskIOPS']
+KEY_GROUPS = ['diskSizeGB', 'mongoDBVersion', 'providerSettings_diskIOPS']
 
 
 class AtlasInventory(object):
@@ -68,38 +67,34 @@ class AtlasInventory(object):
 
 
     def atlas_inventory(self):
-        results = []
+        raw = []
         for group in os.getenv('GROUP_ID').split(','):
             cluster = '/groups/%s/clusters' % group
-            results.append(requests.get('%s%s' % (URL, cluster), auth=self.auth))
+            raw.append(requests.get('%s%s' % (URL, cluster), auth=self.auth))
 
-#         final_result = {}
-#         for i, j in enumerate(results[:-1]):
-#             final_result.update(results[i].json() | results[i+1].json())
-#
-#         import pdb; pdb.set_trace()
-#         if len(results) == 1:
-#             final_result = results[0].json()
-
-        results[0].json()['results'].extend(results[1].json()['results'])
-        final_result = { 'results' : results[0].json() }
-
-        final_result = []
-        final_result.append(results[0].json()['results'])
-        final_result.append(results[1].json()['results'])
-
-        import pdb; pdb.set_trace()
+        # The data structure looks like this:
+        #   { 'link': [...],
+        #     'results': [ { <cluster_1> }, { <cluster_2> } ],
+        #     'totalCount: ...
+        #   }
+        #
+        # For each group result, append each element into final_results,
+        # so that it will contain all data. Nothing to worry about data
+        # being removed because each element is still unique.
+        final_result = {'results': [] }
+        for i, j in enumerate(raw):
+            for k in j.json()['results']:
+                final_result['results'].append(k)
 
         data = {
             'group': {
                 'hosts': [ "%s_%s" % (self.group_map[i['groupId']], i['name']) for i in final_result['results'] ],
             },
             '_meta': {
-                'hostvars': { "%s_%s" % (i['groupId'], i['name']):i for i in final_result['results'] }
+                'hostvars': { "%s_%s" % (self.group_map[i['groupId']], i['name']):i for i in final_result['results'] }
             },
             "all": {
                 "children": [
-                    "ungrouped",
                 ]
             },
         }
